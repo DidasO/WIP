@@ -1135,8 +1135,6 @@ function getSimpleFontOptionsHtml(selectedFont = 'Arial') {
         'Arial Bold',
         'Verdana',
         'Tahoma',
-        'Helvetica',
-        'Helvetica Bold',
         'Helvetica Oblique',
         'Helvetica Bold Oblique',
         'Trebuchet MS',
