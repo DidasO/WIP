@@ -374,7 +374,7 @@ function drawTextEntry(entry) {
             continue;
         }
 
-        ctx.font = `${fontSize}px ${fontFamily}`;
+        ctx.font = buildCanvasFont(fontSize, fontFamily);
         ctx.fillStyle = ln.textColor || '#000000';
         ctx.textBaseline = 'top';
 
@@ -932,7 +932,7 @@ function drawAllItems() {
             ctx.fillStyle = item.bgColor || 'white';
             ctx.fillRect(item.x, item.y, item.w, item.h);
             // draw text
-            ctx.font = `${item.fontSize}px ${item.fontFamily}`;
+            ctx.font = buildCanvasFont(item.fontSize, item.fontFamily);
             ctx.fillStyle = 'black';
             ctx.textBaseline = 'top';
             const words = item.text.split(' ');
@@ -1074,6 +1074,38 @@ function getBackgroundColorFromPreset(preset) {
     }
 }
 
+function resolveCanvasFontParts(fontFamily) {
+    const raw = (fontFamily || 'Arial').toString().trim();
+    const normalized = raw.toLowerCase();
+    const style = (normalized.includes('italic') || normalized.includes('oblique')) ? 'italic' : 'normal';
+    const weight = normalized.includes('bold') ? 'bold' : 'normal';
+
+    let family = 'Arial, Helvetica, sans-serif';
+    if (normalized.includes('times') || normalized.includes('georgia')) {
+        family = '"Times New Roman", Times, serif';
+    } else if (normalized.includes('helvetica')) {
+        family = 'Helvetica, Arial, sans-serif';
+    } else if (normalized.includes('courier')) {
+        family = '"Courier New", Courier, monospace';
+    } else if (normalized.includes('verdana')) {
+        family = 'Verdana, Geneva, sans-serif';
+    } else if (normalized.includes('tahoma')) {
+        family = 'Tahoma, Verdana, sans-serif';
+    } else if (normalized.includes('trebuchet')) {
+        family = '"Trebuchet MS", Helvetica, sans-serif';
+    } else if (normalized.includes('calibri')) {
+        family = 'Calibri, Arial, sans-serif';
+    }
+
+    return { style, weight, family };
+}
+
+function buildCanvasFont(fontSize, fontFamily) {
+    const size = Number(fontSize) || 16;
+    const parts = resolveCanvasFontParts(fontFamily);
+    return `${parts.style} ${parts.weight} ${size}px ${parts.family}`;
+}
+
 function fitSingleLineFontSizeHybrid(text, fontFamily, boxWidth, boxHeight) {
     const padX = 10;
     const padY = 10;
@@ -1088,7 +1120,7 @@ function fitSingleLineFontSizeHybrid(text, fontFamily, boxWidth, boxHeight) {
 
     let fitted = heightBasedSize;
     while (fitted > minSize) {
-        ctx.font = `${fitted}px ${fontFamily || 'Arial'}`;
+        ctx.font = buildCanvasFont(fitted, fontFamily || 'Arial');
         if (ctx.measureText(content).width <= maxWidth) {
             return fitted;
         }
@@ -1098,7 +1130,24 @@ function fitSingleLineFontSizeHybrid(text, fontFamily, boxWidth, boxHeight) {
 }
 
 function getSimpleFontOptionsHtml(selectedFont = 'Arial') {
-    const fonts = ['Arial', 'Verdana', 'Tahoma', 'Helvetica', 'Trebuchet MS', 'Calibri', 'Times New Roman', 'Georgia', 'Courier New'];
+    const fonts = [
+        'Arial',
+        'Arial Bold',
+        'Verdana',
+        'Tahoma',
+        'Helvetica',
+        'Helvetica Bold',
+        'Helvetica Oblique',
+        'Helvetica Bold Oblique',
+        'Trebuchet MS',
+        'Calibri',
+        'Times New Roman',
+        'Times Bold',
+        'Times Italic',
+        'Times Bold Italic',
+        'Georgia',
+        'Courier New'
+    ];
     return fonts
         .map(font => `<option value="${font}" ${font === selectedFont ? 'selected' : ''}>${font}</option>`)
         .join('');

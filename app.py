@@ -34,12 +34,37 @@ def parse_color(color_value):
 
 
 def map_font_name(font_family):
-    name = (font_family or '').lower()
-    if 'times' in name or 'georgia' in name:
+    name = (font_family or '').strip().lower()
+    normalized = name.replace('-', ' ').replace('_', ' ')
+    is_bold = 'bold' in normalized
+    is_italic = ('italic' in normalized) or ('oblique' in normalized)
+
+    if 'times' in normalized or 'georgia' in normalized:
+        if is_bold and is_italic:
+            return 'times-bolditalic'
+        if is_bold:
+            return 'times-bold'
+        if is_italic:
+            return 'times-italic'
         return 'times-roman'
-    if 'courier' in name:
+
+    if 'courier' in normalized:
+        if is_bold and is_italic:
+            return 'courier-boldoblique'
+        if is_bold:
+            return 'courier-bold'
+        if is_italic:
+            return 'courier-oblique'
         return 'courier'
-    return 'helv'
+
+    # Treat Arial and related sans-serif picks as Helvetica family in PDF base14 fonts.
+    if is_bold and is_italic:
+        return 'helvetica-boldoblique'
+    if is_bold:
+        return 'helvetica-bold'
+    if is_italic:
+        return 'helvetica-oblique'
+    return 'helvetica'
 
 
 def measure_pdf_text_width(fitz_module, text, fontname, fontsize):
