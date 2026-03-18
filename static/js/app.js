@@ -732,6 +732,61 @@ function applyPendingZoomFocus() {
     updatePanControls();
 }
 
+function rescaleRectInPlace(rect, ratio) {
+    if (!rect || !Number.isFinite(ratio) || ratio <= 0) return;
+    rect.x *= ratio;
+    rect.y *= ratio;
+    rect.w *= ratio;
+    rect.h *= ratio;
+}
+
+function rescaleLiveStateForZoom(prevScale, nextScale) {
+    if (!Number.isFinite(prevScale) || !Number.isFinite(nextScale) || prevScale <= 0 || nextScale <= 0) {
+        return;
+    }
+    const ratio = nextScale / prevScale;
+    if (Math.abs(ratio - 1) < 0.000001) return;
+
+    if (selection) {
+        rescaleRectInPlace(selection, ratio);
+    }
+
+    if (Number.isFinite(startX)) startX *= ratio;
+    if (Number.isFinite(startY)) startY *= ratio;
+
+    if (imageMouseTransformState) {
+        if (imageMouseTransformState.startSelection) {
+            rescaleRectInPlace(imageMouseTransformState.startSelection, ratio);
+        }
+        if (imageMouseTransformState.startTransform) {
+            imageMouseTransformState.startTransform.offsetX = (imageMouseTransformState.startTransform.offsetX || 0) * ratio;
+            imageMouseTransformState.startTransform.offsetY = (imageMouseTransformState.startTransform.offsetY || 0) * ratio;
+        }
+    }
+
+    if (currentImageTransform) {
+        currentImageTransform = normalizeImageTransform({
+            ...currentImageTransform,
+            offsetX: (currentImageTransform.offsetX || 0) * ratio,
+            offsetY: (currentImageTransform.offsetY || 0) * ratio
+        });
+    }
+
+    if (previewEdit && previewEdit.type === 'image' && previewEdit.coordSpace !== 'base') {
+        previewEdit.x *= ratio;
+        previewEdit.y *= ratio;
+        previewEdit.w *= ratio;
+        previewEdit.h *= ratio;
+        if (previewEdit.imageTransform) {
+            previewEdit.imageTransform = normalizeImageTransform({
+                ...previewEdit.imageTransform,
+                offsetX: (previewEdit.imageTransform.offsetX || 0) * ratio,
+                offsetY: (previewEdit.imageTransform.offsetY || 0) * ratio
+            });
+        }
+    }
+}
+
 function setViewZoom(newZoom, options = {}) {
     const editorArea = document.getElementById('editor-area');
     if (canvas && editorArea) {
@@ -750,8 +805,11 @@ function setViewZoom(newZoom, options = {}) {
     viewZoom = clamp(newZoom, 0.5, 3);
     updateFitZoomBase();
     // 100% in UI means "fit to view". Higher/lower values zoom from that baseline.
+    const previousScale = scale;
     const effectiveZoom = viewZoom * fitZoomBase;
-    scale = BASE_RENDER_SCALE * effectiveZoom;
+    const nextScale = BASE_RENDER_SCALE * effectiveZoom;
+    rescaleLiveStateForZoom(previousScale, nextScale);
+    scale = nextScale;
     // force rerender in the new scale (otherwise redraw may reuse old base bitmap)
     renderedBaseScale = null;
     const zoomRange = document.getElementById('zoom-range');
