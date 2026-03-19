@@ -64,6 +64,19 @@ body {
     flex: 1;
 }
 
+.image-tab-layout {
+    display: flex;
+    flex-direction: column;
+}
+
+.image-tab-layout .sidebar-controls {
+    flex: 1;
+}
+
+.image-back-bottom {
+    margin-top: auto;
+}
+
 .sidebar-controls {
     margin-top: 12px;
     display: flex;

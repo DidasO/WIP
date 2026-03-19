@@ -2001,6 +2001,10 @@ function setupEventListeners() {
             previewEdit = null;
             hideEditOverlay();
             setPickAppliedImageMode(false);
+            setImageTransformControls(DEFAULT_IMAGE_TRANSFORM);
+            setImageFilterControls(DEFAULT_IMAGE_FILTER);
+            selectedImageDataUrl = null;
+            selectedImageObj = null;
             if (canvas) canvas.style.cursor = '';
             redrawCanvas();
         };
@@ -2046,7 +2050,9 @@ function setupEventListeners() {
         }
 
         if (backToSelectionImageBtn) {
-            backToSelectionImageBtn.addEventListener('click', () => {
+            backToSelectionImageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 returnToSelectionMenu();
             });
         }
