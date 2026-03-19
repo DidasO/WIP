@@ -1588,6 +1588,23 @@ function loadImageFromDataUrl(dataUrl) {
     });
 }
 
+async function triggerEditableDownload(url, filename) {
+    if (!url) return;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) {
+        throw new Error('Falha ao transferir a cópia editável');
+    }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename || 'projeto-editavel.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
 async function renderImageEntryForPdf(entry) {
     const srcImg = (entry.imgObj && entry.imgObj.complete) ? entry.imgObj : await loadImageFromDataUrl(entry.dataUrl);
     const baseW = Math.max(1, Math.round(entry.w));
@@ -1933,7 +1950,6 @@ function setupEventListeners() {
         const applyImageBtn = document.getElementById('apply-image');
         const outputPdfNameInput = document.getElementById('pdf-output-name');
         const editorArea = document.getElementById('editor-area');
-        const editableDownloadLink = document.getElementById('editable-download-link');
         const importEditableBtn = document.getElementById('import-editable-btn');
         const importEditableFileInput = document.getElementById('import-editable-file');
         const zoomOutBtn = document.getElementById('zoom-out');
@@ -1948,7 +1964,6 @@ function setupEventListeners() {
             document.getElementById('image-scale')
         ];
         const saveBtn = document.getElementById('save-canvas');
-        const editLink = document.getElementById('edit-link');
         let pickAppliedImageMode = false;
 
         const baseInputName = (() => {
@@ -2592,20 +2607,15 @@ function setupEventListeners() {
                     }
                     return body;
                 })
-                  .then(res => {
+                  .then(async res => {
                       if (res.status === 'ok') {
                           const link = document.getElementById('download-link');
                           link.href = res.pdf || res.png || '#';
                           link.style.display = 'inline-block';
                           link.textContent = res.pdf ? 'Download PDF' : 'Download PNG';
-                          if (editableDownloadLink && res.editable) {
-                              editableDownloadLink.href = res.editable;
-                              editableDownloadLink.style.display = 'inline-block';
-                              editableDownloadLink.setAttribute('download', 'projeto-editavel.json');
-                          }
-                          if (editLink && res.editUrl) {
-                              editLink.href = res.editUrl;
-                              editLink.style.display = 'inline-block';
+                          if (res.editable) {
+                              const editableFilename = `${(desiredPdfName || baseInputName).replace(/\.pdf$/i, '') || 'projeto-editavel'}.edits.json`;
+                              await triggerEditableDownload(res.editable, editableFilename);
                           }
                       } else {
                           alert(res.message || 'Falha ao salvar');

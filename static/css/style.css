@@ -627,8 +627,6 @@ canvas:active {
     background-color: #2980b9;
 }
 
-#editable-download-link,
-#edit-link,
 #import-editable-btn {
     color: white;
     text-decoration: none;
@@ -639,22 +637,6 @@ canvas:active {
     cursor: pointer;
     transition: background-color 0.3s;
     font-size: 13px;
-}
-
-#editable-download-link {
-    background-color: #0ea5e9;
-}
-
-#editable-download-link:hover {
-    background-color: #0284c7;
-}
-
-#edit-link {
-    background-color: #6366f1;
-}
-
-#edit-link:hover {
-    background-color: #4f46e5;
 }
 
 #import-editable-btn {
