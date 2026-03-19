@@ -395,14 +395,8 @@ function drawTextEntry(entry) {
                         wrappedLines.push(currentLine.trimEnd());
                         currentLine = '';
                     }
-                    const pieces = splitLongToken(word);
-                    pieces.forEach((piece, idx) => {
-                        if (idx < pieces.length - 1) {
-                            wrappedLines.push(piece);
-                        } else {
-                            currentLine = piece + ' ';
-                        }
-                    });
+                    // Push the whole word unsplit; auto-fit will reduce scale until it fits in width
+                    wrappedLines.push(word);
                     continue;
                 }
 
@@ -448,11 +442,12 @@ function drawTextEntry(entry) {
             const candidate = buildRenderedLines(clampedScale);
             const candidateGap = Math.max(0.5, lineGap * clampedScale);
             const totalHeight = measureRenderedHeight(candidate, candidateGap);
+            const fitsWidth = candidate.every(l => l.width <= maxWidth + 1);
             return {
                 scale: clampedScale,
                 lines: candidate,
                 gap: candidateGap,
-                fits: totalHeight <= availableHeight,
+                fits: totalHeight <= availableHeight && fitsWidth,
                 totalHeight
             };
         };
@@ -2291,7 +2286,26 @@ function setupEventListeners() {
         const liveTextPreviewHandler = () => {
             triggerLiveTextPreview();
         };
-        if (sidebarTextInput) sidebarTextInput.addEventListener('input', liveTextPreviewHandler);
+        if (sidebarTextInput) sidebarTextInput.addEventListener('input', () => {
+            if (textLinesModeEnabled) {
+                // Sync top textarea changes into line editor rows, preserving per-row font/size
+                const rawLines = (sidebarTextInput.value || '').split(/\r?\n/);
+                const container = document.getElementById('text-lines-editor');
+                const oldRows = container ? Array.from(container.querySelectorAll('.text-line-row')) : [];
+                const newLines = rawLines.map((text, i) => {
+                    const oldRow = oldRows[i];
+                    const ffEl = oldRow && oldRow.querySelector('.line-font-family');
+                    const fsEl = oldRow && oldRow.querySelector('.line-font-size');
+                    return {
+                        text,
+                        fontFamily: (ffEl && ffEl.value) || 'Arial',
+                        fontSize: parseInt((fsEl && fsEl.value) || '16', 10) || 16
+                    };
+                });
+                populateTextLineEditor(newLines, getSidebarTextConfig());
+            }
+            triggerLiveTextPreview();
+        });
         if (sidebarFontFamily) sidebarFontFamily.addEventListener('change', liveTextPreviewHandler);
         if (sidebarFontSize) sidebarFontSize.addEventListener('input', liveTextPreviewHandler);
         if (sidebarBgColor) sidebarBgColor.addEventListener('change', liveTextPreviewHandler);
