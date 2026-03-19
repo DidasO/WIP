@@ -15,6 +15,7 @@
         <div class="tab-content" id="text-tab">
             <h3>Texto</h3>
             <button id="select-text" class="select-btn">Selecionar</button>
+            <button id="back-to-selection-text" class="select-btn secondary-btn" type="button">Voltar ao menu de seleção</button>
             <div class="sidebar-controls">
                 <label for="sidebar-text-input">Texto</label>
                 <textarea id="sidebar-text-input" placeholder="Escreve o texto..."></textarea>
@@ -42,8 +43,13 @@
 
                 <label for="sidebar-text-autofit" class="inline-option">
                     <input type="checkbox" id="sidebar-text-autofit">
-                    Auto-ajustar texto à caixa (1 linha)
+                    Auto-ajustar texto à caixa
                 </label>
+
+                <button id="sidebar-text-center" class="select-btn secondary-btn" type="button">Centrar texto</button>
+
+                <label for="sidebar-line-spacing">Entre-linhas</label>
+                <input type="number" id="sidebar-line-spacing" value="1" min="0.6" max="3" step="0.1">
 
                 <label for="sidebar-bg-color">Fundo do texto</label>
                 <select id="sidebar-bg-color">
@@ -52,9 +58,6 @@
                     <option value="yellow">Amarelo</option>
                     <option value="red">Vermelho</option>
                 </select>
-
-                <label for="sidebar-text-color">Cor do texto</label>
-                <input type="color" id="sidebar-text-color" value="#000000">
 
                 <button id="split-text-lines" class="select-btn" type="button">Dividir texto em linhas</button>
                 <div id="text-lines-editor" class="text-lines-editor"></div>
@@ -67,6 +70,7 @@
         <div class="tab-content" id="image-tab" style="display:none;">
             <h3>Imagem</h3>
             <button id="select-image" class="select-btn">Selecionar</button>
+            <button id="back-to-selection-image" class="select-btn secondary-btn" type="button">Voltar ao menu de seleção</button>
             <button id="edit-applied-image" class="select-btn">Editar imagem aplicada</button>
             <button id="cancel-edit-applied-image" class="select-btn" style="display:none;">Cancelar edição aplicada</button>
             <div class="sidebar-controls">

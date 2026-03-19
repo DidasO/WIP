@@ -136,6 +136,51 @@ def wrap_text_for_pdf(fitz_module, text, max_width, fontname, fontsize):
 
     return lines
 
+
+def build_pdf_wrapped_lines(fitz_module, lines, max_width, scale_factor, default_color):
+    rendered = []
+    for ln in lines:
+        text = (ln.get('text') or '').strip()
+        if not text:
+            continue
+        fontname = map_font_name(ln.get('fontFamily', 'Arial'))
+        base_font_size = max(6.0, float(ln.get('fontSize', 16)))
+        font_size = max(6.0, base_font_size * scale_factor * PDF_TEXT_POINT_FACTOR)
+        color = parse_color(ln.get('textColor', default_color))
+        wrapped = wrap_text_for_pdf(fitz_module, text, max_width, fontname, font_size)
+        for wrapped_line in wrapped:
+            rendered.append({
+                'text': wrapped_line,
+                'fontname': fontname,
+                'fontsize': font_size,
+                'color': color,
+                'width': measure_pdf_text_width(fitz_module, wrapped_line, fontname, font_size)
+            })
+    return rendered
+
+
+def fit_pdf_text_block(fitz_module, lines, max_width, max_height, line_gap, default_color):
+    scale_factor = 1.0
+    min_scale = 0.35
+    best_lines = build_pdf_wrapped_lines(fitz_module, lines, max_width, scale_factor, default_color)
+    best_gap = line_gap
+
+    while scale_factor >= min_scale:
+        rendered = build_pdf_wrapped_lines(fitz_module, lines, max_width, scale_factor, default_color)
+        scaled_gap = line_gap * scale_factor
+        total_height = 0.0
+        for index, item in enumerate(rendered):
+            total_height += item['fontsize']
+            if index < len(rendered) - 1:
+                total_height += scaled_gap
+        if total_height <= max_height:
+            return rendered, scaled_gap, False
+        best_lines = rendered
+        best_gap = scaled_gap
+        scale_factor -= 0.05 if scale_factor > 0.6 else 0.02
+
+    return best_lines, best_gap, True
+
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 EDITED_FOLDER = os.path.join(os.getcwd(), 'edited')
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -303,70 +348,70 @@ def save_image():
 
                     pad_x = max(2.0, 10.0 * sx)
                     pad_y = max(2.0, 10.0 * sy)
-                    line_gap = max(1.0, 4.0 * sy)
+                    line_spacing = max(0.6, float(item.get('lineSpacing', 1) or 1))
+                    line_gap = max(1.0, 4.0 * sy) * line_spacing
                     y_cursor = rect.y0 + pad_y
                     y_limit = rect.y1 - max(1.0, 6.0 * sy)
                     max_width = max(1.0, rect.width - (2.0 * pad_x))
-                    use_single_line_autofit = bool(item.get('autoFitSingleLine')) and len(lines) == 1
+                    auto_fit_text = bool(item.get('autoFitText') or item.get('autoFitSingleLine'))
+                    is_centered = (item.get('textAlign') == 'center') or bool(item.get('centerText'))
+                    default_color = item.get('textColor', '#000000')
 
-                    for ln in lines:
-                        text = (ln.get('text') or '').strip()
-                        if not text:
-                            continue
-                        line_font_size = ln.get('fontSize', item.get('fontSize', 16))
-                        font_size = max(6.0, float(line_font_size) * sy * PDF_TEXT_POINT_FACTOR)
-                        color = parse_color(ln.get('textColor', item.get('textColor', '#000000')))
-                        fontname = map_font_name(ln.get('fontFamily', 'Arial'))
+                    if auto_fit_text:
+                        rendered_lines, scaled_gap, _ = fit_pdf_text_block(
+                            fitz,
+                            lines,
+                            max_width,
+                            max(1.0, y_limit - y_cursor),
+                            line_gap,
+                            default_color
+                        )
+                    else:
+                        rendered_lines = build_pdf_wrapped_lines(fitz, lines, max_width, sy, default_color)
+                        scaled_gap = line_gap
 
-                        if use_single_line_autofit:
-                            fitted = fit_text_with_ellipsis(fitz, text, max_width, fontname, font_size)
-                            fitted_w = measure_pdf_text_width(fitz, fitted, fontname, font_size)
-                            draw_x = rect.x0 + pad_x + max(0.0, (max_width - fitted_w) / 2.0)
-                            text_top = rect.y0 + max(pad_y, (rect.height - font_size) / 2.0)
-                            page.insert_text(
-                                fitz.Point(draw_x, text_top + (font_size * PDF_TEXT_BASELINE_FACTOR)),
-                                fitted,
-                                fontsize=font_size,
-                                fontname=fontname,
-                                color=color,
-                                overlay=True
-                            )
-                            break
-
-                        wrapped = wrap_text_for_pdf(fitz, text, max_width, fontname, font_size)
-
-                        for i, wrapped_line in enumerate(wrapped):
+                    if auto_fit_text and len(rendered_lines) == 1:
+                        single = rendered_lines[0]
+                        draw_x = rect.x0 + pad_x
+                        if is_centered:
+                            draw_x += max(0.0, (max_width - single['width']) / 2.0)
+                        text_top = rect.y0 + max(pad_y, (rect.height - single['fontsize']) / 2.0)
+                        page.insert_text(
+                            fitz.Point(draw_x, text_top + (single['fontsize'] * PDF_TEXT_BASELINE_FACTOR)),
+                            single['text'],
+                            fontsize=single['fontsize'],
+                            fontname=single['fontname'],
+                            color=single['color'],
+                            overlay=True
+                        )
+                    else:
+                        for index, rendered in enumerate(rendered_lines):
+                            font_size = rendered['fontsize']
                             if y_cursor + font_size > y_limit:
                                 break
+                            draw_value = rendered['text']
+                            draw_width = rendered['width']
+                            next_y = y_cursor + font_size + scaled_gap
+                            has_more = index < len(rendered_lines) - 1
+                            if has_more and (next_y + rendered_lines[index + 1]['fontsize'] > y_limit):
+                                draw_value = fit_text_with_ellipsis(fitz, draw_value + ' ', max_width, rendered['fontname'], font_size)
+                                draw_width = measure_pdf_text_width(fitz, draw_value, rendered['fontname'], font_size)
 
-                            has_more = i < (len(wrapped) - 1)
-                            next_y = y_cursor + font_size + line_gap
-                            draw_value = wrapped_line
-                            if has_more and (next_y + font_size > y_limit):
-                                draw_value = fit_text_with_ellipsis(fitz, wrapped_line + ' ', max_width, fontname, font_size)
-                                page.insert_text(
-                                    fitz.Point(rect.x0 + pad_x, y_cursor + (font_size * PDF_TEXT_BASELINE_FACTOR)),
-                                    draw_value,
-                                    fontsize=font_size,
-                                    fontname=fontname,
-                                    color=color,
-                                    overlay=True
-                                )
-                                y_cursor = y_limit + 1.0
-                                break
+                            draw_x = rect.x0 + pad_x
+                            if is_centered:
+                                draw_x += max(0.0, (max_width - draw_width) / 2.0)
 
                             page.insert_text(
-                                fitz.Point(rect.x0 + pad_x, y_cursor + (font_size * PDF_TEXT_BASELINE_FACTOR)),
+                                fitz.Point(draw_x, y_cursor + (font_size * PDF_TEXT_BASELINE_FACTOR)),
                                 draw_value,
                                 fontsize=font_size,
-                                fontname=fontname,
-                                color=color,
+                                fontname=rendered['fontname'],
+                                color=rendered['color'],
                                 overlay=True
                             )
-                            y_cursor += font_size + line_gap
-
-                        if y_cursor + font_size > y_limit:
-                            break
+                            y_cursor += font_size + scaled_gap
+                            if has_more and (next_y + rendered_lines[index + 1]['fontsize'] > y_limit):
+                                break
 
             original_base = os.path.splitext(base_pdf_name)[0]
         else:

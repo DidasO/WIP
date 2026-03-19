@@ -89,8 +89,7 @@ body {
 
 .sidebar-controls textarea,
 .sidebar-controls select,
-.sidebar-controls input[type="number"],
-.sidebar-controls input[type="color"] {
+.sidebar-controls input[type="number"] {
     width: 100%;
     border: 1px solid #475569;
     background: #0f172a;
@@ -102,11 +101,6 @@ body {
 .sidebar-controls textarea {
     min-height: 84px;
     resize: vertical;
-}
-
-.sidebar-controls input[type="color"] {
-    padding: 2px;
-    min-height: 34px;
 }
 
 #split-text-lines {
@@ -145,9 +139,25 @@ body {
 
 .text-line-row-controls {
     display: grid;
-    grid-template-columns: 1fr 72px 52px;
+    grid-template-columns: 1fr 72px;
     gap: 6px;
     align-items: center;
+}
+
+.secondary-btn {
+    background-color: #475569;
+}
+
+.secondary-btn:hover {
+    background-color: #334155;
+}
+
+.secondary-btn.mode-active {
+    background-color: #0f766e;
+}
+
+.secondary-btn.mode-active:hover {
+    background-color: #115e59;
 }
 
 .image-transform-controls {

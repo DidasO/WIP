@@ -337,9 +337,14 @@ function drawTextEntry(entry) {
     const zoomFactor = entry.coordSpace === 'base' ? getScaleFromBase() : 1;
     const padX = Math.max(2, 10 * zoomFactor);
     const padY = Math.max(2, 10 * zoomFactor);
-    const lineGap = Math.max(1, 4 * zoomFactor);
+    const lineSpacing = Math.max(0.6, Number(entry.lineSpacing) || 1);
+    const baseLineGap = Math.max(1, 4 * zoomFactor);
+    const lineGap = baseLineGap * lineSpacing;
     const bottomPad = Math.max(1, 6 * zoomFactor);
     const clipInset = Math.max(1, 2 * zoomFactor);
+    const isCentered = entry.textAlign === 'center' || !!entry.centerText;
+    const autoFitText = !!(entry.autoFitText || entry.autoFitSingleLine);
+    const defaultTextColor = entry.textColor || resolveTextColorForBackground(entry.bgPreset || 'white');
 
     const maxWidth = Math.max(1, w - (2 * padX));
     let drawY = y + padY;
@@ -350,8 +355,109 @@ function drawTextEntry(entry) {
     ctx.rect(x + clipInset, y + clipInset, Math.max(1, w - (2 * clipInset)), Math.max(1, h - (2 * clipInset)));
     ctx.clip();
 
-    const useSingleLineAutoFit = !!entry.autoFitSingleLine && lines.length === 1;
     let hasOverflow = false;
+
+    const splitLongToken = (token) => {
+        const chunks = [];
+        let chunk = '';
+        for (const char of token) {
+            const attempt = chunk + char;
+            if (ctx.measureText(attempt).width <= maxWidth || chunk.length === 0) {
+                chunk = attempt;
+            } else {
+                chunks.push(chunk);
+                chunk = char;
+            }
+        }
+        if (chunk) chunks.push(chunk);
+        return chunks;
+    };
+
+    const buildRenderedLines = (scaleFactor = 1) => {
+        const rendered = [];
+        for (const ln of lines) {
+            const text = (ln.text || '').trim();
+            const fontFamily = ln.fontFamily || 'Arial';
+            const fontSize = Math.max(6, (parseInt(ln.fontSize, 10) || 16) * scaleFactor);
+
+            if (!text) continue;
+
+            ctx.font = buildCanvasFont(fontSize, fontFamily);
+            const words = text.split(' ');
+            let currentLine = '';
+            const wrappedLines = [];
+
+            for (const word of words) {
+                if (!word) continue;
+                if (ctx.measureText(word).width > maxWidth) {
+                    if (currentLine) {
+                        wrappedLines.push(currentLine.trimEnd());
+                        currentLine = '';
+                    }
+                    const pieces = splitLongToken(word);
+                    pieces.forEach((piece, idx) => {
+                        if (idx < pieces.length - 1) {
+                            wrappedLines.push(piece);
+                        } else {
+                            currentLine = piece + ' ';
+                        }
+                    });
+                    continue;
+                }
+
+                const testLine = currentLine + word + ' ';
+                if (ctx.measureText(testLine).width > maxWidth && currentLine !== '') {
+                    wrappedLines.push(currentLine.trimEnd());
+                    currentLine = word + ' ';
+                } else {
+                    currentLine = testLine;
+                }
+            }
+
+            if (currentLine) wrappedLines.push(currentLine.trimEnd());
+
+            wrappedLines.forEach((wrappedText) => {
+                ctx.font = buildCanvasFont(fontSize, fontFamily);
+                rendered.push({
+                    text: wrappedText,
+                    fontFamily,
+                    fontSize,
+                    textColor: defaultTextColor,
+                    width: ctx.measureText(wrappedText).width
+                });
+            });
+        }
+        return rendered;
+    };
+
+    const measureRenderedHeight = (rendered, gap) => rendered.reduce((total, line, index) => {
+        return total + line.fontSize + (index < rendered.length - 1 ? gap : 0);
+    }, 0);
+
+    let renderedLines = buildRenderedLines(1);
+    let renderLineGap = lineGap;
+    if (autoFitText) {
+        let scaleFactor = 1;
+        let fitted = renderedLines;
+        let fittedGap = lineGap;
+        let foundFit = false;
+        while (scaleFactor >= 0.35) {
+            const candidate = buildRenderedLines(scaleFactor);
+            const candidateGap = lineGap * scaleFactor;
+            if (measureRenderedHeight(candidate, candidateGap) <= Math.max(1, maxY - (y + padY))) {
+                fitted = candidate;
+                fittedGap = candidateGap;
+                foundFit = true;
+                break;
+            }
+            fitted = candidate;
+            fittedGap = candidateGap;
+            scaleFactor -= scaleFactor > 0.6 ? 0.05 : 0.02;
+        }
+        renderedLines = fitted;
+        renderLineGap = fittedGap;
+        hasOverflow = !foundFit && measureRenderedHeight(renderedLines, renderLineGap) > Math.max(1, maxY - (y + padY));
+    }
 
     const fitTextWithEllipsis = (rawText, availableWidth) => {
         const textValue = `${rawText || ''}`;
@@ -364,103 +470,42 @@ function drawTextEntry(entry) {
         return cut ? (cut + ellipsis) : ellipsis;
     };
 
-    for (const ln of lines) {
-        const text = (ln.text || '').trim();
-        const fontFamily = ln.fontFamily || 'Arial';
-        const fontSize = parseInt(ln.fontSize, 10) || 16;
-
-        if (!text) {
-            drawY += fontSize + lineGap;
-            continue;
-        }
-
-        ctx.font = buildCanvasFont(fontSize, fontFamily);
-        ctx.fillStyle = ln.textColor || '#000000';
-        ctx.textBaseline = 'top';
-
-        if (useSingleLineAutoFit) {
-            const autoY = y + Math.max(padY, (h - fontSize) / 2);
-            const fitted = fitTextWithEllipsis(text, maxWidth);
-            const fittedWidth = ctx.measureText(fitted).width;
-            const autoX = x + padX + Math.max(0, (maxWidth - fittedWidth) / 2);
-            hasOverflow = hasOverflow || (fitted !== text);
-            ctx.fillText(fitted, autoX, autoY);
-
-            drawY = autoY + fontSize + lineGap;
-            continue;
-        }
-
-        const wrappedLines = [];
-        const words = text.split(' ');
-        let currentLine = '';
-
-        const splitLongToken = (token) => {
-            const chunks = [];
-            let chunk = '';
-            for (const char of token) {
-                const attempt = chunk + char;
-                if (ctx.measureText(attempt).width <= maxWidth || chunk.length === 0) {
-                    chunk = attempt;
-                } else {
-                    chunks.push(chunk);
-                    chunk = char;
-                }
-            }
-            if (chunk) chunks.push(chunk);
-            return chunks;
-        };
-
-        for (const word of words) {
-            if (!word) continue;
-            if (ctx.measureText(word).width > maxWidth) {
-                if (currentLine) {
-                    wrappedLines.push(currentLine.trimEnd());
-                    currentLine = '';
-                }
-                const pieces = splitLongToken(word);
-                pieces.forEach((piece, idx) => {
-                    if (idx < pieces.length - 1) {
-                        wrappedLines.push(piece);
-                    } else {
-                        currentLine = piece + ' ';
-                    }
-                });
-                continue;
-            }
-
-            const testLine = currentLine + word + ' ';
-            if (ctx.measureText(testLine).width > maxWidth && currentLine !== '') {
-                wrappedLines.push(currentLine.trimEnd());
-                currentLine = word + ' ';
-            } else {
-                currentLine = testLine;
-            }
-        }
-        if (currentLine) wrappedLines.push(currentLine.trimEnd());
-
-        for (let i = 0; i < wrappedLines.length; i++) {
-            const wrapped = wrappedLines[i];
-            if (drawY + fontSize > maxY) {
+    ctx.textBaseline = 'top';
+    if (autoFitText && renderedLines.length === 1) {
+        const single = renderedLines[0];
+        ctx.font = buildCanvasFont(single.fontSize, single.fontFamily);
+        ctx.fillStyle = single.textColor;
+        const autoY = y + Math.max(padY, (h - single.fontSize) / 2);
+        const autoX = x + padX + (isCentered ? Math.max(0, (maxWidth - single.width) / 2) : 0);
+        ctx.fillText(single.text, autoX, autoY);
+    } else {
+        for (let i = 0; i < renderedLines.length; i++) {
+            const rendered = renderedLines[i];
+            if (drawY + rendered.fontSize > maxY) {
                 hasOverflow = true;
                 ctx.restore();
                 return hasOverflow;
             }
+            ctx.font = buildCanvasFont(rendered.fontSize, rendered.fontFamily);
+            ctx.fillStyle = rendered.textColor;
 
-            let textToDraw = wrapped;
-            const hasMoreWrapped = i < wrappedLines.length - 1;
-            if (hasMoreWrapped) {
-                const nextY = drawY + fontSize + lineGap;
-                if (nextY + fontSize > maxY) {
-                    textToDraw = fitTextWithEllipsis(`${wrapped} `, maxWidth);
-                    hasOverflow = true;
-                    ctx.fillText(textToDraw, x + padX, drawY);
-                    ctx.restore();
-                    return hasOverflow;
-                }
+            let textToDraw = rendered.text;
+            let textWidth = rendered.width;
+            const hasMore = i < renderedLines.length - 1;
+            const nextY = drawY + rendered.fontSize + renderLineGap;
+            if (hasMore && nextY + renderedLines[i + 1].fontSize > maxY) {
+                textToDraw = fitTextWithEllipsis(`${rendered.text} `, maxWidth);
+                textWidth = ctx.measureText(textToDraw).width;
+                hasOverflow = true;
             }
 
-            ctx.fillText(textToDraw, x + padX, drawY);
-            drawY += fontSize + lineGap;
+            const drawX = x + padX + (isCentered ? Math.max(0, (maxWidth - textWidth) / 2) : 0);
+            ctx.fillText(textToDraw, drawX, drawY);
+            drawY += rendered.fontSize + renderLineGap;
+            if (hasMore && nextY + renderedLines[i + 1].fontSize > maxY) {
+                ctx.restore();
+                return hasOverflow;
+            }
         }
     }
 
@@ -589,7 +634,11 @@ function serializeEditableEdits() {
                 textColor: entry.textColor || '#000000',
                 bgColor: entry.bgColor || '#ffffff',
                 bgPreset: entry.bgPreset || 'white',
-                autoFitSingleLine: !!entry.autoFitSingleLine
+                autoFitSingleLine: !!entry.autoFitSingleLine,
+                autoFitText: !!(entry.autoFitText || entry.autoFitSingleLine),
+                lineSpacing: Number(entry.lineSpacing) || 1,
+                textAlign: entry.textAlign === 'center' ? 'center' : 'left',
+                centerText: !!entry.centerText
             };
         }
         return null;
@@ -648,7 +697,11 @@ function applyEditableProjectData(project) {
                 textColor: entry.textColor || '#000000',
                 bgColor: entry.bgColor || '#ffffff',
                 bgPreset: entry.bgPreset || 'white',
-                autoFitSingleLine: !!entry.autoFitSingleLine
+                autoFitSingleLine: !!entry.autoFitSingleLine,
+                autoFitText: !!(entry.autoFitText || entry.autoFitSingleLine),
+                lineSpacing: Number(entry.lineSpacing) || 1,
+                textAlign: entry.textAlign === 'center' ? 'center' : 'left',
+                centerText: !!entry.centerText
             };
         }
         return null;
@@ -972,21 +1025,20 @@ function getSidebarTextConfig() {
     const textInput = document.getElementById('sidebar-text-input');
     const fontFamilyInput = document.getElementById('sidebar-font-family');
     const fontSizeInput = document.getElementById('sidebar-font-size');
-    const textColorInput = document.getElementById('sidebar-text-color');
     const bgColorInput = document.getElementById('sidebar-bg-color');
     const autoFitInput = document.getElementById('sidebar-text-autofit');
+    const lineSpacingInput = document.getElementById('sidebar-line-spacing');
+    const centerTextBtn = document.getElementById('sidebar-text-center');
     const lineRows = document.querySelectorAll('.text-line-row');
 
     const rowLines = Array.from(lineRows).map(row => {
         const lineTextInput = row.querySelector('.line-text');
         const lineFamilyInput = row.querySelector('.line-font-family');
         const lineSizeInput = row.querySelector('.line-font-size');
-        const lineColorInput = row.querySelector('.line-text-color');
         return {
             text: lineTextInput ? lineTextInput.value : '',
             fontFamily: lineFamilyInput ? lineFamilyInput.value : (fontFamilyInput ? fontFamilyInput.value : 'Arial'),
-            fontSize: lineSizeInput ? parseInt(lineSizeInput.value, 10) || 16 : 16,
-            textColor: lineColorInput ? lineColorInput.value : (textColorInput ? textColorInput.value : '#000000')
+            fontSize: lineSizeInput ? parseInt(lineSizeInput.value, 10) || 16 : 16
         };
     }).filter(line => (line.text || '').trim().length > 0);
 
@@ -994,8 +1046,7 @@ function getSidebarTextConfig() {
     const fallbackLineEntries = fallbackRawText.split(/\r?\n/).map(lineText => ({
         text: lineText,
         fontFamily: fontFamilyInput ? fontFamilyInput.value : 'Arial',
-        fontSize: fontSizeInput ? parseInt(fontSizeInput.value, 10) || 16 : 16,
-        textColor: textColorInput ? textColorInput.value : '#000000'
+        fontSize: fontSizeInput ? parseInt(fontSizeInput.value, 10) || 16 : 16
     }));
     const hasFallbackContent = fallbackLineEntries.some(line => (line.text || '').trim().length > 0);
 
@@ -1005,6 +1056,8 @@ function getSidebarTextConfig() {
 
     const bgPreset = bgColorInput ? bgColorInput.value : 'white';
     const effectiveTextColor = resolveTextColorForBackground(bgPreset);
+    const lineSpacing = Math.max(0.6, parseFloat(lineSpacingInput ? lineSpacingInput.value : '1') || 1);
+    const isCentered = !!(centerTextBtn && centerTextBtn.classList.contains('mode-active'));
 
     const adjustedLines = effectiveLines.map(line => ({
         ...line,
@@ -1018,7 +1071,11 @@ function getSidebarTextConfig() {
         textColor: effectiveTextColor,
         lines: adjustedLines,
         bgPreset,
-        autoFitSingleLine: !!(autoFitInput && autoFitInput.checked)
+        autoFitSingleLine: !!(autoFitInput && autoFitInput.checked),
+        autoFitText: !!(autoFitInput && autoFitInput.checked),
+        lineSpacing,
+        textAlign: isCentered ? 'center' : 'left',
+        centerText: isCentered
     };
 }
 
@@ -1027,22 +1084,26 @@ function resetTextSidebarForNewEntry() {
     const fontFamilyInput = document.getElementById('sidebar-font-family');
     const fontSizeInput = document.getElementById('sidebar-font-size');
     const bgColorInput = document.getElementById('sidebar-bg-color');
-    const textColorInput = document.getElementById('sidebar-text-color');
     const autoFitInput = document.getElementById('sidebar-text-autofit');
+    const lineSpacingInput = document.getElementById('sidebar-line-spacing');
+    const centerTextBtn = document.getElementById('sidebar-text-center');
 
     if (textInput) textInput.value = '';
     if (fontFamilyInput) fontFamilyInput.value = 'Arial';
     if (fontSizeInput) fontSizeInput.value = 16;
     if (bgColorInput) bgColorInput.value = 'white';
     if (autoFitInput) autoFitInput.checked = false;
-    if (textColorInput) textColorInput.value = resolveTextColorForBackground('white');
+    if (lineSpacingInput) lineSpacingInput.value = '1';
+    if (centerTextBtn) centerTextBtn.classList.remove('mode-active');
 
     textLinesModeEnabled = false;
     populateTextLineEditor([], {
         text: '',
         fontFamily: 'Arial',
         fontSize: 16,
-        textColor: resolveTextColorForBackground('white')
+        textColor: resolveTextColorForBackground('white'),
+        lineSpacing: 1,
+        textAlign: 'left'
     });
     setTextOverflowIndicator(false);
 }
@@ -1155,14 +1216,12 @@ function buildTextLineRow(line = {}, index = 1) {
     const text = line.text || '';
     const fontFamily = line.fontFamily || 'Arial';
     const fontSize = parseInt(line.fontSize, 10) || 16;
-    const textColor = line.textColor || '#000000';
     return `
         <div class="text-line-row">
             <input type="text" class="line-text" value="${text.replace(/"/g, '&quot;')}" placeholder="Linha ${index}">
             <div class="text-line-row-controls">
                 <select class="line-font-family">${getSimpleFontOptionsHtml(fontFamily)}</select>
                 <input type="number" class="line-font-size" min="8" max="72" value="${fontSize}">
-                <input type="color" class="line-text-color" value="${textColor}">
             </div>
         </div>
     `;
@@ -1177,8 +1236,7 @@ function populateTextLineEditor(lines = [], fallbackCfg = null) {
         sourceLines = fallbackCfg.text.split(/\r?\n/).map(text => ({
             text,
             fontFamily: fallbackCfg.fontFamily || 'Arial',
-            fontSize: fallbackCfg.fontSize || 16,
-            textColor: fallbackCfg.textColor || '#000000'
+            fontSize: fallbackCfg.fontSize || 16
         }));
     }
 
@@ -1186,8 +1244,7 @@ function populateTextLineEditor(lines = [], fallbackCfg = null) {
         sourceLines = [{
             text: '',
             fontFamily: (fallbackCfg && fallbackCfg.fontFamily) || 'Arial',
-            fontSize: (fallbackCfg && fallbackCfg.fontSize) || 16,
-            textColor: (fallbackCfg && fallbackCfg.textColor) || '#000000'
+            fontSize: (fallbackCfg && fallbackCfg.fontSize) || 16
         }];
     }
 
@@ -1443,13 +1500,12 @@ function buildTextEntryFromSelection() {
     if (!selection) return null;
     const cfg = getSidebarTextConfig();
     if (!cfg.text) return null;
-    const isSingleLine = (cfg.lines || []).length === 1 && !((cfg.text || '').includes('\n'));
     const resolvedBgColor = getBackgroundColorFromPreset(cfg.bgPreset);
     let resolvedLines = (cfg.lines || []).map(line => ({ ...line }));
 
     const baseRect = canvasRectToBaseRect(selection);
 
-    if (cfg.autoFitSingleLine && isSingleLine && resolvedLines[0] && !(resolvedLines[0].text || '').includes('\n')) {
+    if (cfg.autoFitText && resolvedLines.length === 1 && resolvedLines[0] && !(resolvedLines[0].text || '').includes('\n')) {
         const line = resolvedLines[0];
         const fittedSize = fitSingleLineFontSizeHybrid(
             line.text || '',
@@ -1477,7 +1533,11 @@ function buildTextEntryFromSelection() {
         textColor: cfg.textColor,
         bgColor: resolvedBgColor,
         bgPreset: cfg.bgPreset,
-        autoFitSingleLine: cfg.autoFitSingleLine
+        autoFitSingleLine: cfg.autoFitSingleLine,
+        autoFitText: cfg.autoFitText,
+        lineSpacing: cfg.lineSpacing,
+        textAlign: cfg.textAlign,
+        centerText: cfg.centerText
     };
 }
 
@@ -1615,7 +1675,11 @@ async function prepareEditsForPdfSave() {
                 lines: exportLines,
                 text: entry.text || '',
                 bgColor: entry.bgColor || '#ffffff',
-                autoFitSingleLine: !!entry.autoFitSingleLine
+                autoFitSingleLine: !!entry.autoFitSingleLine,
+                autoFitText: !!(entry.autoFitText || entry.autoFitSingleLine),
+                lineSpacing: Number(entry.lineSpacing) || 1,
+                textAlign: entry.textAlign === 'center' ? 'center' : 'left',
+                centerText: !!entry.centerText
             });
         }
     }
@@ -1773,24 +1837,22 @@ function showEditOverlay() {
             const textInput = document.getElementById('sidebar-text-input');
             const fontFamilyInput = document.getElementById('sidebar-font-family');
             const fontSizeInput = document.getElementById('sidebar-font-size');
-            const textColorInput = document.getElementById('sidebar-text-color');
             const bgColorInput = document.getElementById('sidebar-bg-color');
             const autoFitInput = document.getElementById('sidebar-text-autofit');
+            const lineSpacingInput = document.getElementById('sidebar-line-spacing');
+            const centerTextBtn = document.getElementById('sidebar-text-center');
             if (textInput) textInput.value = entry.text || '';
             if (fontFamilyInput) fontFamilyInput.value = entry.fontFamily || 'Arial';
             if (fontSizeInput) fontSizeInput.value = uiFontSize;
-            if (textColorInput) {
-                const resolved = resolveTextColorForBackground(entry.bgPreset || 'white');
-                textColorInput.value = resolved;
-            }
             if (bgColorInput) bgColorInput.value = entry.bgPreset || 'white';
-            if (autoFitInput) autoFitInput.checked = !!entry.autoFitSingleLine;
+            if (autoFitInput) autoFitInput.checked = !!(entry.autoFitText || entry.autoFitSingleLine);
+            if (lineSpacingInput) lineSpacingInput.value = String(Number(entry.lineSpacing) || 1);
+            if (centerTextBtn) centerTextBtn.classList.toggle('mode-active', entry.textAlign === 'center' || !!entry.centerText);
             textLinesModeEnabled = !!(uiLines && uiLines.length > 1);
             populateTextLineEditor(uiLines || [], {
                 text: entry.text || '',
                 fontFamily: entry.fontFamily || 'Arial',
-                fontSize: uiFontSize,
-                textColor: entry.textColor || '#000000'
+                fontSize: uiFontSize
             });
         }
     }
@@ -1845,6 +1907,8 @@ function setupEventListeners() {
         const editAppliedImageBtn = document.getElementById('edit-applied-image');
         const cancelEditAppliedImageBtn = document.getElementById('cancel-edit-applied-image');
         const selectTextBtn = document.getElementById('select-text');
+        const backToSelectionTextBtn = document.getElementById('back-to-selection-text');
+        const backToSelectionImageBtn = document.getElementById('back-to-selection-image');
         // set up sidebar tabs if present
         setupTabSwitching();
         const imageUploadInput = document.getElementById('image-upload');
@@ -1856,9 +1920,10 @@ function setupEventListeners() {
         const sidebarTextInput = document.getElementById('sidebar-text-input');
         const sidebarFontFamily = document.getElementById('sidebar-font-family');
         const sidebarFontSize = document.getElementById('sidebar-font-size');
-        const sidebarTextColor = document.getElementById('sidebar-text-color');
         const sidebarBgColor = document.getElementById('sidebar-bg-color');
         const sidebarTextAutofit = document.getElementById('sidebar-text-autofit');
+        const sidebarLineSpacing = document.getElementById('sidebar-line-spacing');
+        const sidebarTextCenter = document.getElementById('sidebar-text-center');
         const splitTextLinesBtn = document.getElementById('split-text-lines');
         const textLinesEditor = document.getElementById('text-lines-editor');
         const previewTextBtn = document.getElementById('preview-text');
@@ -1913,6 +1978,17 @@ function setupEventListeners() {
                 }
             }
         };
+
+        const returnToSelectionMenu = () => {
+            currentMode = null;
+            editingIndex = null;
+            selection = null;
+            previewEdit = null;
+            hideEditOverlay();
+            setPickAppliedImageMode(false);
+            if (canvas) canvas.style.cursor = '';
+            redrawCanvas();
+        };
         
         console.log('selectImageBtn:', selectImageBtn);
         console.log('selectTextBtn:', selectTextBtn);
@@ -1948,6 +2024,18 @@ function setupEventListeners() {
             });
         }
 
+        if (backToSelectionTextBtn) {
+            backToSelectionTextBtn.addEventListener('click', () => {
+                returnToSelectionMenu();
+            });
+        }
+
+        if (backToSelectionImageBtn) {
+            backToSelectionImageBtn.addEventListener('click', () => {
+                returnToSelectionMenu();
+            });
+        }
+
         if (editAppliedImageBtn) {
             editAppliedImageBtn.addEventListener('click', () => {
                 const nextEnabled = !pickAppliedImageMode;
@@ -1979,14 +2067,14 @@ function setupEventListeners() {
         if (sidebarTextInput) sidebarTextInput.addEventListener('input', liveTextPreviewHandler);
         if (sidebarFontFamily) sidebarFontFamily.addEventListener('change', liveTextPreviewHandler);
         if (sidebarFontSize) sidebarFontSize.addEventListener('input', liveTextPreviewHandler);
-        if (sidebarTextColor) sidebarTextColor.addEventListener('input', liveTextPreviewHandler);
         if (sidebarBgColor) sidebarBgColor.addEventListener('change', liveTextPreviewHandler);
         if (sidebarTextAutofit) sidebarTextAutofit.addEventListener('change', liveTextPreviewHandler);
-        if (sidebarBgColor && sidebarTextColor) {
-            sidebarBgColor.addEventListener('change', () => {
-                sidebarTextColor.value = resolveTextColorForBackground(sidebarBgColor.value);
+        if (sidebarLineSpacing) sidebarLineSpacing.addEventListener('input', liveTextPreviewHandler);
+        if (sidebarTextCenter) {
+            sidebarTextCenter.addEventListener('click', () => {
+                sidebarTextCenter.classList.toggle('mode-active');
+                liveTextPreviewHandler();
             });
-            sidebarTextColor.value = resolveTextColorForBackground(sidebarBgColor.value);
         }
 
         if (splitTextLinesBtn) {
@@ -2007,8 +2095,7 @@ function setupEventListeners() {
                 const lineEntries = splitLines.map(text => ({
                     text,
                     fontFamily: cfg.fontFamily || 'Arial',
-                    fontSize: cfg.fontSize || 16,
-                    textColor: cfg.textColor || '#000000'
+                    fontSize: cfg.fontSize || 16
                 }));
 
                 textLinesModeEnabled = true;
